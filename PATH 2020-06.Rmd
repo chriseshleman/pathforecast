@@ -1,0 +1,240 @@
+---
+title: "PATH 2020-06"
+author: "Planning & Regional Development"
+date: "5/29/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Copy and move files. 
+First, dates. 
+Second, inputs. 
+DONE. 
+
+Then incorporate quarter-to-month interpolation. 
+
+```{r}
+### PATH FORECASTING SCRIPT 
+# Reduce to 125 lines tops. Save relevant stuff. Zip final file. Send to all relevant parties.
+
+
+## Set working drive 
+#setwd("S:/Current/REA - Economic and Activity Forecasts/Line Departments/PATH") # work 
+#setwd("C:/Users/ceshleman/Dropbox/Work and research/Port Authority/PA data & analysis/PA PATH")
+setwd("~/Dropbox/Work and research/Port Authority/pathforecast")
+
+cat("\014") # clear the console 
+rm(list=ls()) 
+options(scipen=999) 
+dev.off() 
+
+
+library(broom) 
+library(knitr) 
+library(zoo) 
+library(reshape2) 
+library(forecast) 
+library(tseries) 
+library(dplyr) 
+library(lubridate) 
+library(doBy) 
+library(mice) 
+library(lmtest) 
+library(tidyr) 
+#library(yardstick) 
+#library(Hmisc) 
+set.seed(101) 
+
+
+start = "2004-01-01" 
+end = "2020-02-01" #"2019-12-01" 
+end_and_one = "2020-03-01" #"2020-01-01" 
+extra = as.Date(end_and_one)-as.Date(end) 
+future = "2040-12-31" 
+
+elapsed_months <- function(end_date, start_date) {
+  ed <- as.POSIXlt(end_date) 
+  sd <- as.POSIXlt(start_date) 
+  12 * (ed$year - sd$year) + (ed$mon - sd$mon) 
+}
+horizon = elapsed_months(future,start)+1 
+forec_horizon = elapsed_months(future,end) 
+forec_horizon
+(2040-2018)*12
+
+
+##########################################################################################################
+### LOAD DATA LOAD DATA LOAD DATA LOAD DATA LOAD DATA LOAD DATA LOAD DATA LOAD DATA LOAD DATA LOAD DATA LO
+##########################################################################################################
+
+days = read.csv("./Dates_with_holidays.csv"); names(days) = c("month","weekdays","saturdays","sundays") 
+days$month = as.Date(days$month,format="%m/%d/%Y") 
+
+
+# New ridership variables for 2019-07-23 model run are avg_wkdayholminor_tstile	avg_satholmajor_tstile	avg_sun_tstile
+#path = read.csv("S:/Current/REA - Economic and Activity Forecasts/Line Departments/PATH/PATH forecast inputs/PATH input 2019q4.csv") 
+#path = read.csv("./PA PATH input/PATH input 2019q4.csv") #path = read.csv("./PA PATH input/PATH input 2019q3_all_update.csv") 
+path = read.csv("./PATH input 2020q1.csv")
+head(path,3) 
+path$month = as.Date(path$month,format="%m/%d/%y") 
+
+# Econ from Q3 
+#econ = read.csv("S:/Current/REA - Economic and Activity Forecasts/Line Departments/PATH/PATH forecast inputs/other_econ_vars_prepped quar 2019q3.csv") 
+# Econ from Q4 - opt and pess 
+
+
+##########################################################################################################
+### INTERPOLATE QUARTERS TO MONTHS 
+##########################################################################################################
+
+#done elsewhere
+
+##########################################################################################################
+### PREP PREP PREP PREP PREP PREP PREP PREP 
+##########################################################################################################
+
+before = subset(path,path$month<=end & path$month>="2002-01-01")#path$month<=as.Date(end,format="%Y-%m-%d") & path$month>=as.Date(start,format="%Y-%m-%d")) 
+after = subset(path,path$month>end) 
+
+
+###########################################################################################################
+### SPECIAL: WEEKEND CLOSURES    SPECIAL: WEEKEND CLOSURES    SPECIAL: WEEKEND CLOSURES    SPECIAL: WEEKEND
+###########################################################################################################
+
+# another time 
+
+############################################################################################################
+### CHOOSE MODEL COVARIATES CHOOSE MODEL COVARIATES CHOOSE MODEL COVARIATES CHOOSE MODEL COVARIATES CHOOSE M
+############################################################################################################
+names(before) 
+### WEEKDAYS 
+oldreg=as.matrix(data.frame(before$man_hud, 
+                            before$dummy_2,before$dummy_3,before$dummy_4,before$dummy_5,before$dum_911_base,
+                            before$dummy_6,before$dummy_7,before$dummy_8,before$dummy_9,before$dummy_10,before$dummy_11,before$dummy_12,
+                            before$supersandy, before$real_fare_q1)) #real_fare_q4
+newreg=as.matrix(data.frame(after$man_hud, 
+                            after$dummy_2,after$dummy_3,after$dummy_4,after$dummy_5, after$dum_911_base,
+                            after$dummy_6, after$dummy_7, after$dummy_8, after$dummy_9, after$dummy_10, after$dummy_11, after$dummy_12,
+                            after$supersandy, after$real_fare_q1))
+### SATURDAY & SUNDAY 
+oldregsat=as.matrix(data.frame(before$pop_hudson,before$dummy_2, before$dummy_3, before$dummy_4,before$dum_911_base,
+                            before$dummy_5, before$dummy_6, before$dummy_7, before$dummy_8, before$dummy_9, before$dummy_10, before$dummy_11, 
+                            before$dummy_12,before$supersandy, before$end_close,
+                            before$real_fare_q1))
+newregsat=as.matrix(data.frame(after$pop_hudson,after$dummy_2, after$dummy_3, after$dummy_4,after$dum_911_base,
+                            after$dummy_5, after$dummy_6, after$dummy_7, after$dummy_8, after$dummy_9, after$dummy_10, after$dummy_11, 
+                            after$dummy_12,after$supersandy, after$end_close,
+                            after$real_fare_q1)) 
+
+t.test(before$sun,before$real_fare) 
+
+
+
+
+############################################################################################################
+### MODELS MODELS MODELS MODELS MODELS MODELS MODELS MODELS MODELS MODELS MODELS MODELS MODELS MODELS MODELS
+############################################################################################################
+names(before) 
+fit = arima(ts(before$avg_wkdayholminor_tstile),xreg = oldreg, order=c(0,0,1), include.mean=T)# as of 2018-09 (1,0,1) before that (1,1,2)) 
+#fit = arima(ts(before$avg_wkdayholminor_tstile),xreg = oldreg, order=c(0,0,1), include.mean=T)# as of 2018-09 (1,0,1) before that (1,1,2)) 
+  #fit = auto.arima(ts(before$week),xreg=oldreg, ic="aic", trace=TRUE, allowdrift=FALSE)#,lambda=0, seasonal=TRUE)# 
+fitsat = arima(ts(before$avg_satholmajor_tstile),xreg=oldregsat,order=c(1,1,0))# as of 2018-09 (1,1,0) before that (1,0,2), method="CSS")# 
+#fitsat = arima(ts(before$avg_satholmajor_tstile),xreg=oldregsat,order=c(1,1,0))# as of 2018-09 (1,1,0) before that (1,0,2), method="CSS")# 
+  #fitsat = auto.arima(ts(before$sat_mice),xreg=oldregsat, ic="aic", trace=TRUE, allowdrift=FALSE ,lambda=0, seasonal=TRUE)# 
+fitsun = arima(ts(before$avg_sun_tstile),xreg=oldregsat,order=c(1,1,1))# as of 2018-09 (1,1,1) before that (1,0,2)) 
+#fitsun = arima(ts(before$avg_sun_tstile),xreg=oldregsat,order=c(1,1,1))# as of 2018-09 (1,1,1) before that (1,0,2)) 
+  #fitsun = auto.arima(ts(before$sun_mice),xreg=oldregsat, ic="aic", trace=TRUE, allowdrift=FALSE,lambda=0, seasonal=TRUE) 
+
+pathpredict = predict(fit, n.ahead=forec_horizon, newxreg=newreg, level=95)#interval = "prediction", conf.level=.9) # predict 
+pathpredictsat = predict(fitsat, n.ahead=forec_horizon, newxreg=newregsat) # predict 
+pathpredictsun = predict(fitsun, n.ahead=forec_horizon, newxreg=newregsat) # predict 
+
+pathpredict_by_month = as.data.frame(cbind(pathpredict$pred,pathpredictsat$pred,pathpredictsun$pred)); names(pathpredict_by_month) = c("week_avg","sat_avg","sun_avg") 
+head(pathpredict_by_month,3) 
+end 
+future 
+
+pathpredict_by_month$month = seq(as.Date(end)+extra,as.Date(future),by="mon") 
+
+## Add old stuff (January 2017, for example) back to the pile. 
+before_mini = data.frame((before$week*before$weekdays),(before$sat*before$saturdays),(before$sun*before$sundays),before$month) 
+  names(before_mini) = c("week","sat","sun","month") 
+
+## Now multiply by number of days per month ... 
+pathpredict_by_month = merge(pathpredict_by_month,days) 
+pathpredict_by_month$week = pathpredict_by_month$week_avg*pathpredict_by_month$weekdays 
+pathpredict_by_month$sat = pathpredict_by_month$sat_avg*pathpredict_by_month$saturdays 
+pathpredict_by_month$sun = pathpredict_by_month$sun_avg*pathpredict_by_month$sundays 
+
+
+pathpredict_mini = data.frame(pathpredict_by_month$month,pathpredict_by_month$week,pathpredict_by_month$sat,pathpredict_by_month$sun) 
+  names(pathpredict_mini) = c("month","week","sat","sun") 
+
+
+  
+#########################################################################################################
+### DIAGNOSTICS DIAGNOSTICS DIAGNOSTICS DIAGNOSTICS DIAGNOSTICS DIAGNOSTICS DIAGNOSTICS DIAGNOSTICS DIAGN
+#########################################################################################################
+  
+out1 = tidy(fit) 
+  #out2 = tidy(glance(fit)) ## why is this crashing my program? 
+out2 = glance(fit) 
+out1  
+out2 
+out3 = tidy(fitsat) 
+out4 = glance(fitsat)
+out3
+out4 
+out5 = tidy(fitsun) 
+out6 = glance(fitsun)
+out5 
+out6 
+
+accuracy(fit) 
+accuracy(fit)[,'MAPE'] 
+
+pathpredict_month_backup = pathpredict_by_month 
+pathpredict_month = rbind(before_mini,pathpredict_mini) #meh. figure this out later
+
+
+
+#########################################################################################################
+### ANNUAL PREDICTIONS ANNUAL PREDICTIONS ANNUAL PREDICTIONS ANNUAL PREDICTIONS ANNUAL PREDICTIONS ANNUAL
+#########################################################################################################
+
+pathpredict_month$year = year(pathpredict_month$month) 
+
+pathpredict_year = summaryBy(week + sat + sun ~ year, data = pathpredict_month, FUN = sum); names(pathpredict_year) = c("year","week","sat","sun")
+pathpredict_year$total = pathpredict_year$week + pathpredict_year$sat + pathpredict_year$sun 
+pathpredict_month$year = NULL 
+years = pathpredict_year 
+pathpredict_year[14,5] = 76565451 
+pathpredict_year[15,5] = 78517120 
+
+
+resids = as.data.frame(cbind(as.vector(resid(fit)),as.vector(resid(fitsat)),as.vector(resid(fitsun)))) 
+
+
+#########################################################################################################
+### RESULTS EXPORT RESULTS EXPORT RESULTS EXPORT RESULTS EXPORT RESULTS EXPORT RESULTS EXPORT 
+#########################################################################################################
+
+tail(pathpredict_by_month) 
+tail(pathpredict_year) 
+#tail(pathpredict_by_month, 50)
+getwd() 
+#write.csv(pathpredict_by_month,"./PATH forecast products/PATH forecast output/PATH q2/PATH month_ 20190506.csv")
+ write.csv(pathpredict_month_backup, "./PATH output test 20200529.csv") 
+#  write.csv(fitted(fit), "./PA PATH output & viz/PATH fitted _week 2020q1.csv") 
+#  write.csv(fitted(fitsat), "./PA PATH output & viz/PATH fitted _sat 2020q1.csv") 
+#  write.csv(fitted(fitsun), "./PA PATH output & viz/PATH fitted _sun 2020q1.csv") 
+#  write.csv(resids, "./PATH forecast products/PATH forecast output/PATH q2/PATH residuals _nodummy 2019q2.csv")
+
+#write.csv(pathpredict_year,"./PA PATH output & viz/PATH ANNUAL_Q4 FARE TRNSTL RIDERS PESS.csv") 
+#  write.csv(pathpredict_by_month, "./PA PATH output & viz/PATH MONTH_2020Q1.csv") 
+
+```
+
