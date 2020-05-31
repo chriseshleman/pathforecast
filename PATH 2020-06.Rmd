@@ -9,6 +9,7 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+To do list: 
 Copy and move input files - input variables and dates. DONE. 
 Incorporate quarter-to-month interpolation. DONE. 
 Bind dates, ridership, monthly economics, other. DONE. 
