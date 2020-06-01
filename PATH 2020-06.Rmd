@@ -13,10 +13,11 @@ To do list:
 Copy and move input files - input variables and dates. DONE. 
 Incorporate quarter-to-month interpolation. DONE. 
 Bind dates, ridership, monthly economics, other. DONE. 
-Add and update diagnostics. 
+Confirm represents 2019 Q3 forecast outputs. DONE. 
+Add and update diagnostics. DONE. 
+Package outputs (inputs, forecast and diagnostics). DONE [diagnostics by hand, for now.]
 Automate real fare calculation. 
-Confirm represetns 2020 Q1 (?) forecast outputs. 
-Package outputs (inputs, forecast and diagnostics). 
+Rebuild process with new component pieces. 
 Clean code. 
 Add narrative. 
 Package (zip?) and share. 
@@ -42,14 +43,22 @@ library(doBy)
 library(mice) 
 library(lmtest) 
 library(tidyr) 
-library(zoo) 
+library(zoo)
+#install.packages("openxlsx") 
+library(openxlsx) 
+#install.packages("xlsxjars")
+#library(xlsxjars) 
+#install.packages("XLConnect")
+#library(XLConnect) 
+#install.packages("xlsx") 
+#library(xlsx) 
 #library(yardstick) 
 
 set.seed(101) 
 
 start = "2004-01-01" 
-end = "2020-02-01" #"2019-12-01" 
-end_and_one = "2020-03-01" #"2020-01-01" 
+end = "2019-08-01" #"2020-02-01" #"2019-12-01" 
+end_and_one = "2019-09-01" #"2020-03-01" #"2020-01-01" 
 extra = as.Date(end_and_one)-as.Date(end) 
 future = "2040-12-31" 
 
@@ -67,7 +76,7 @@ forec_horizon
 ##2. Interpolation: convert quarterly data to monthly. 
 
 ```{r}
-jobs = read.csv("./econ_vars_quar 2020_06.csv") 
+jobs = read.csv("./input data/econ_vars_quar 2020_06.csv") 
 jobs1 = jobs#[complete.cases(jobs),] 
 
 # IF QUARTERS ARE 'AVERAGE' OF RELEVANT THREE MONTHS (define 'average' later) 
@@ -95,7 +104,7 @@ zm=rbind(zm,zm2)
 zm=rbind(zm,zm3) 
 zm = zm[order(as.Date(zm$month_, format="%Y-%m-%d")),] 
 
-write.csv(zm,"./econ_vars_months 2020_06.csv") 
+write.csv(zm,"./input data/econ_vars_months 2020_06.csv") 
 jobs_month = zm 
 names(jobs_month) = tolower(names(jobs_month)) 
 
@@ -105,14 +114,14 @@ rm(jobs,jobs1,jobs2,tt,zm,zm2,zm3)
 ##3. Load data load data.
 
 ```{r}
-days = read.csv("./Dates_dummies.csv") 
+days = read.csv("./input data/dates_dummies.csv") 
 #; names(days) = c("month","weekdays","saturdays","sundays") 
 days$month = as.Date(days$month, "%m/%d/%y") 
 
-path = read.csv("./PATH input 2020_06.csv") 
+path = read.csv("./input data/PATH input 2020_06.csv") 
 path$month = as.Date(days$month, "%m/%d/%y") 
 
-other = read.csv("./other.csv") 
+other = read.csv("./input data/other.csv") 
 other$month = as.Date(other$month, "%m/%d/%y") 
 
 path = merge(days,path)#,by="month") 
@@ -124,11 +133,10 @@ path = merge(path,other)#,by="month")
 ##4.Prepare for model.
 
 ```{r}
-#before = subset(path,path$month<=end & path$month>="2002-01-01") 
-before = head(path,218) 
-#after = subset(path,path$month>end) 
-after = tail(path,250) 
-summary(after) 
+before = subset(path,path$month<=end & path$month>="2004-01-01") 
+#before = head(path,218) 
+after = subset(path,path$month>end) 
+#after = tail(path,250) 
 
 ### WEEKDAYS 
 oldreg=as.matrix(data.frame(before$man_hud_KEEP,                             before$dummy_2,before$dummy_3,before$dummy_4,before$dummy_5,before$dum_911_base,
@@ -155,6 +163,7 @@ newregsat=as.matrix(data.frame(after$pop_hudson_KEEP,after$dummy_2, after$dummy_
 ##5. Models and forecasts. 
 ###5a. Fit models (estimate equations). 
 ###Weekday
+
 ```{r}
 summary(before) 
 fit = arima(ts(before$avg_wkdayholminor_tstile),xreg = oldreg, order=c(0,0,1), include.mean=T)#method="CSS")# as of 2018-09 (1,0,1) before that (1,1,2)) 
@@ -163,6 +172,7 @@ fit = arima(ts(before$avg_wkdayholminor_tstile),xreg = oldreg, order=c(0,0,1), i
 ```
 
 ###Saturday
+
 ```{r}
 fitsat = arima(ts(before$avg_satholmajor_tstile),xreg=oldregsat,order=c(1,1,0))# as of 2018-09 (1,1,0) before that (1,0,2), method="CSS")# 
 #fitsat = arima(ts(before$avg_satholmajor_tstile),xreg=oldregsat,order=c(1,1,0))# as of 2018-09 (1,1,0) before that (1,0,2), method="CSS")# 
@@ -170,6 +180,7 @@ fitsat = arima(ts(before$avg_satholmajor_tstile),xreg=oldregsat,order=c(1,1,0))#
 ```
 
 ###Sunday
+
 ```{r}
 fitsun = arima(ts(before$avg_sun_tstile),xreg=oldregsat,order=c(1,1,1))# as of 2018-09 (1,1,1) before that (1,0,2)) 
 #fitsun = arima(ts(before$avg_sun_tstile),xreg=oldregsat,order=c(1,1,1))# as of 2018-09 (1,1,1) before that (1,0,2)) 
@@ -177,6 +188,7 @@ fitsun = arima(ts(before$avg_sun_tstile),xreg=oldregsat,order=c(1,1,1))# as of 2
 ```
 
 ###5b. Predict (forecast).
+
 ```{r}
 pathpredict = predict(fit, n.ahead=forec_horizon, newxreg=newreg, level=95)#interval = "prediction", conf.level=.9) # predict 
 pathpredictsat = predict(fitsat, n.ahead=forec_horizon, newxreg=newregsat) # predict 
@@ -217,19 +229,15 @@ pathpredict_mini = data.frame(pathpredict_by_month$month,pathpredict_by_month$we
 out1 = tidy(fit) 
   #out2 = tidy(glance(fit)) ## why is this crashing my program? 
 out2 = glance(fit) 
-out1  
-out2 
+out2.5 = accuracy(fit) 
 out3 = tidy(fitsat) 
 out4 = glance(fitsat)
-out3
-out4 
+out4.5 = accuracy(fitsat) 
 out5 = tidy(fitsun) 
-out6 = glance(fitsun)
-out5 
-out6 
+out6 = glance(fitsun) 
+out6.5 = accuracy(fitsun) 
 
-accuracy(fit) 
-accuracy(fit)[,'MAPE'] 
+#accuracy(fit)[,'MAPE'] 
 
 pathpredict_month_backup = pathpredict_by_month 
 pathpredict_month = rbind(before_mini,pathpredict_mini) #meh. figure this out later
@@ -245,22 +253,90 @@ pathpredict_year[14,5] = 76565451
 pathpredict_year[15,5] = 78517120 
 
 
-resids = as.data.frame(cbind(as.vector(resid(fit)),as.vector(resid(fitsat)),as.vector(resid(fitsun)))) 
+resids = as.data.frame(cbind(as.vector(resid(fit)),as.vector(resid(fitsat)),as.vector(resid(fitsun)))); names(resids) = c("Weekday_residuals", "Saturday_residuals", "Sunday_residuals")
 ```
+
+
+```{r}
+out1  
+```
+
+```{r}
+out2 
+```
+
+```{r}
+out2.5
+```
+
+```{r}
+out3
+```
+
+```{r}
+out4 
+```
+
+```{r}
+out4.5 
+```
+
+```{r}
+out5 
+```
+
+```{r}
+out6
+```
+
+```{r}
+out6.5 
+```
+
 
 ##8. Save (export).
 
 ```{r}
+
+tail(pathpredict_year) 
+#write.csv(pathpredict_month_backup, "./PATH output test 20200529.csv") 
+
 #write.csv(pathpredict_by_month,"./PATH forecast products/PATH forecast output/PATH q2/PATH month_ 20190506.csv")
- write.csv(pathpredict_month_backup, "./PATH output test 20200529.csv") 
 #  write.csv(fitted(fit), "./PA PATH output & viz/PATH fitted _week 2020q1.csv") 
 #  write.csv(fitted(fitsat), "./PA PATH output & viz/PATH fitted _sat 2020q1.csv") 
 #  write.csv(fitted(fitsun), "./PA PATH output & viz/PATH fitted _sun 2020q1.csv") 
 #  write.csv(resids, "./PATH forecast products/PATH forecast output/PATH q2/PATH residuals _nodummy 2019q2.csv")
 
 #write.csv(pathpredict_year,"./PA PATH output & viz/PATH ANNUAL_Q4 FARE TRNSTL RIDERS PESS.csv") 
-#  write.csv(pathpredict_by_month, "./PA PATH output & viz/PATH MONTH_2020Q1.csv") 
+write.csv(pathpredict_by_month, "./output data/monthly 2020-06.csv") 
+```
+
+
+## XXX. Try saving diagnostics. 
+
+```{r}
+#xlcFreeMemory() # (this is related to the free memory command above (when loading XLConnect)) 
+
+#wb = loadWorkbook(("./Diagnostics V1.xlsx"), create = TRUE) 
+#createSheet(wb, name = "Annual") 
+#writeWorksheet(wb, path_ann, sheet = "Annual", startRow = 3, startCol = 3, header = TRUE) 
+#writeWorksheet(wb, path_month, sheet = "Monthly", startRow = 3, startCol = 15, header = TRUE)
+#writeWorksheet(wb, as.numeric(fitted(fit)), sheet = "Monthly", startRow = 3, startCol = 25, header=TRUE) #rownames = "Y-hat") 
+#writeWorksheet(wb, as.numeric(fitted(fitsat)), sheet = "Monthly", startRow = 3, startCol = 26, header=TRUE) #rownames = "Y-hat") 
+#writeWorksheet(wb, as.numeric(fitted(fitsun)), sheet = "Monthly", startRow = 3, startCol = 27, header=TRUE) #rownames = "Y-hat") 
+#createSheet(wb, name = "Diagnostics") 
+#writeWorksheet(wb, out1, sheet = "Diagnostics", startRow = 4, startCol = 2, header = TRUE) 
+#writeWorksheet(wb, out2, sheet = "Diagnostics", startRow = 24, startCol = 2, header = TRUE) 
+#writeWorksheet(wb, out3, sheet = "Diagnostics", startRow = 38, startCol = 2, header = TRUE) 
+#writeWorksheet(wb, out4, sheet = "Diagnostics", startRow = 60, startCol = 2, header = TRUE) 
+#writeWorksheet(wb, out5, sheet = "Diagnostics", startRow = 72, startCol = 2, header = TRUE) 
+#writeWorksheet(wb, out6, sheet = "Diagnostics", startRow = 92, startCol = 2, header = TRUE) 
+#writeWorksheet(wb, durbinWatsonTest(as.vector(resid(fit))), sheet = "Diagnostics", startRow=102, startCol=2, header=TRUE) 
+#writeWorksheet(wb, durbinWatsonTest(as.vector(resid(fitsat))), sheet = "Diagnostics", startRow=104, startCol=2, header=TRUE) 
+#writeWorksheet(wb, durbinWatsonTest(as.vector(resid(fitsun))), sheet = "Diagnostics", startRow=106, startCol=2, header=TRUE) 
+#setColumnWidth(wb, sheet = "Diagnostics", column = 3:4, width = -1)  #automatically adjust column width 
+#writeWorksheet(wb, resids, sheet = "Diagnostics", startRow = 4, startCol = 24, header = TRUE) 
+#saveWorkbook(wb) 
 
 ```
 
-Did the final year of output total 100,347,550? 
