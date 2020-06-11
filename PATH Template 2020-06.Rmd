@@ -1,0 +1,448 @@
+---
+title: "PATH Forecast Documentation"
+author: "Planning & Regional Development"
+date: "6/3/2020"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include = TRUE, message = FALSE, warning = FALSE, tidy.opts=list(width.cutoff=60),tidy=TRUE) # Echo is the code and include is the output  
+```
+
+#\textcolor{red}{DRAFT}
+
+##Summary
+
+This note attempts to document the process used to produce long-range PATH forecasts. Different sections are designed for different audiences in the hope of providing measures of transparency and reproducability.
+
+Discussion across internal agency staff regarding the PATH forecasts generally employ the term "model." There are actually three models, one apiece for weekday, Saturday and Sunday ridership, used to develop raw projections of future ridership.^[Holidays are distributed across weekdays (for minor holidays, where PATH has found similarities between weekday and minor holiday ridership behavior) and Saturdays (major holidays). Weekdays include one minor holiday apiece in October (Columbus Day) and November (Veterans Day). Saturdays include other holidays. Sundays represent only Sunday ridership.] 
+
+Each model is trained using data on economic conditions, seasonal conditions, ridership disruptions (events), and historic ridership. The forward-looking forecasting process then proceeds by subjecting future scenarios for those economic and seasonal conditions to those three equations; this produces predicted values for future ridership. 
+
+The product of this process is an Excel file containing predicted ridership, all data used as inputs in the process, and diagnostics commonly reported as part of statistical modeling. 
+
+This file's second section embeds most of the relevant source code included in the process outlined above, and the full code will be provided as an attached source file when material is transmitted to PATH in the future. 
+
+PATH and Planning developed the general outlines for the models three years ago. Specifications since then have not changed, outside of the allowance of shifting time series controls.^[The models' time series controls are reset roughly once a year, with guidance provided by automated variable selection algorithms. Nerds, see: https://otexts.com/fpp2/arima-r.html] The weekday model, which easily forecasts the largest share of total ridership, has performed generally well but the weekend models have gradually lost predictive power as weekend closures have provided near-useless data points in increasing frequency. PATH and Planning attempted to address this challenge in 2019 and it remains unresolved. 
+
+The only other major change of note since the 2017 model development process is a shift in the definition of day types. Holidays were at one point all classified and treated as Sundays; the shift to the current treatment had a minor impact on the forecast. 
+
+The file has four sections. 
+First, the summary (above).
+Second, code documentation. This is included for transparency and reproducability, and can be moved to a later section in subsequent versions; for now, it is easiest to keep it as the second section. It can be used, for example, to find what file names are imported to and exported from the process. Data on ridership is read directly from a file provided by PATH. Data on days per month is also provided by PATH and is pasted into a larger file containing days and variables for various events or cyclical modeling treatments, including but not limited to weekend closures, Hurricane Sandy, and seasonal (monthly) variation. 
+Third, output. This focuses on annual forecasted ridership. 
+Fourth, modeling statistics and diagnostics. Modelers can review this information at their interest. 
+
+\pagebreak 
+
+##Code
+
+The economics data, already converted to monthly, is combined with days, dummy variables (simulating past events that need special statistical controls), ridership, and fares. They're saved across a handful of small worksheets and are merged in-memory. The data is thus almost completely unaltered prior to actual analysis (model estimation and forecasting). The exception is the fare variable, which is converted from nominal to real using the most recent macroeconomic forecast's value for national CPI. 
+
+PATH forecasts through early 2020 used regional CPI, and going forward will use national CPI to conform with TB&T forecasting and agency financial analysis.  
+<p>&nbsp;</p>
+
+```{r}
+setwd("~/Dropbox/Work and research/Port Authority/pathforecast")
+
+cat("\014") # clear the console 
+rm(list=ls()) 
+options(scipen=999) 
+
+library(broom) 
+library(knitr) 
+library(zoo) 
+library(reshape2) 
+library(forecast) 
+library(tseries) 
+library(dplyr) 
+library(lubridate) 
+library(doBy) 
+library(mice) 
+library(lmtest) 
+library(tidyr) 
+library(stringr) 
+library(zoo) 
+library(ggplot2) 
+library(scales) 
+library(openxlsx) 
+library(writexl)
+library(formatR) 
+
+start = "2004-01-01" 
+```
+
+A key manual option in the model is to select the months where (1) ridership data ends and, immediately following that, (2) the forecasting process begins: 
+<p>&nbsp;</p> 
+
+```{r, include=TRUE, echo=TRUE}
+end = "2020-02-01" 
+end_and_one = "2020-03-01" 
+```
+<p>&nbsp;</p> 
+
+```{r}
+extra = as.Date(end_and_one)-as.Date(end) 
+future = "2040-12-31" 
+
+elapsed_months <- function(end_date, start_date) {
+  ed <- as.POSIXlt(end_date) 
+  sd <- as.POSIXlt(start_date) 
+  12 * (ed$year - sd$year) + (ed$mon - sd$mon) 
+}
+horizon = elapsed_months(future,start)+1 
+forec_horizon = elapsed_months(future,end) 
+```
+
+
+```{r}
+# Import quarterly variables and convert quarterly to monthly. 
+jobs = read.csv("./input data/econ_vars_quar 2020_06.csv") 
+
+jobs1 = jobs#[complete.cases(jobs),] # IF QUARTERS ARE 'AVERAGE' OF RELEVANT THREE MONTHS (define 'average' later) 
+
+jobs1$Month = as.Date(jobs1$Month, "%m/%d/%y") 
+
+jobs1 = read.zoo(jobs1) # Converts the data frame to a time series matrix 
+
+tt = as.yearmon(seq(start(jobs1), end(jobs1), "month")) # Makes months, different format
+
+zm = as.data.frame(na.spline(jobs1, as.yearmon, xout = tt)) 
+zm$month = seq(as.Date("2000/1/1"), as.Date("2040/10/01"), by="month") # Add date 
+
+zm2 = subset(zm,zm$month=="2040-10-01") 
+zm3 = subset(zm,zm$month=="2040-10-01") 
+zm2$month="2040-11-01" 
+zm3$month="2040-12-01" 
+zm=rbind(zm,zm2) 
+zm=rbind(zm,zm3) 
+
+zm = zm[order(as.Date(zm$month, format="%Y-%m-%d")),] 
+
+econ_month = zm 
+names(econ_month) = tolower(names(econ_month)) 
+```
+
+```{r}
+# Save economic monthly variables as: 
+write.csv(econ_month,"./input data/econ_vars_months 2020_06.csv") 
+```
+
+```{r}
+rm(jobs,jobs1,tt,zm,zm2,zm3) 
+```
+
+<p>&nbsp;</p> 
+The modeling process employs ridership data directly from a file provided by PATH and attaches it to other files that include information on days, fare, economic variables and other data points. 
+<p>&nbsp;</p> 
+
+```{r, echo=TRUE} 
+path = read.csv("./input data/PATH_PaxCounts_2000-2009+2010-2020Apr.csv") 
+path$month = as.Date(paste(path$year,str_pad(path$month, 2, pad = "0"),"01",sep="-"))
+path$year = NULL 
+```
+
+```{r}
+kable(head(path[c(1:4)],6),caption="Sample: PATH ridership file pt 1") 
+kable(head(path[c(5:8)],6),caption="Sample: PATH ridership file pt 2") 
+
+# Other data 
+days = read.csv("./input data/dates_dummies.csv") 
+days$month = as.Date(days$month, "%m/%d/%y") 
+
+fare = read.csv("./input data/fare_nominal.csv") 
+fare$month = as.Date(fare$month, "%m/%d/%y") 
+
+# Merge 
+path = merge(days,path, all.x = TRUE)#,by="month") 
+path = merge(path,fare)#,by="month") 
+path = merge(path,econ_month) 
+```
+
+
+Details for calculation of real fare in footnote.^[https://stackoverflow.com/questions/25646333/code-chunk-font-size-in-rmarkdown-with-knitr-and-latex/57151528#57151528] 
+
+```{r, echo=TRUE}
+path$cpi_base = path[path$month==end, "cpi_2020_06"] 
+path$real_farefare = ifelse(path$month <= end, path$fare_nominal * path$cpi_base / path$cpi_2020_06, max(path$fare_nominal)) 
+path$cpi_base = NULL 
+```
+
+PATH ridership has grown at roughly 1.2% annually for the past three decades, including dips (following 9/11 and Hurricane Sandy) and jumps (significant weekday growth in the years preceding 2019): 
+<p>&nbsp;</p> 
+
+```{r, include=TRUE, echo=FALSE, fig.width=9,fig.height=7}
+keycol = "type"
+valuecol = "riders"
+gathercols = c("avg_wkdayholminor_tstile", "avg_satholmajor_tstile", "avg_sun_tstile") 
+brief = gather_(path, keycol, valuecol, gathercols)
+brief = brief[c(1,40:41)] 
+ggplot(data=brief, aes(x=month, y=riders, group=1, colour=(month>"2020-02-01"))) +
+  geom_line(color="red") + 
+  geom_point(size=0.5) + 
+  theme(legend.position="none") + 
+  facet_wrap(~type, ncol = 1) + #, scales = "free")
+  scale_y_continuous(labels=comma) 
+```
+
+
+```{r, echo=TRUE}
+before = subset(path, path$month<=end & path$month>="2004-01-01") #before = head(path, 218)
+after = subset(path, path$month>end) #after = tail(path, 250) 
+```
+
+The code for training the models are below, starting with a quick list of the variables chosen for the three equations, one apiece for weekday, Saturday and Sunday ridership. Note that the Saturday and Sunday equations use the same varibles. Key predictors are Manhattan and Hudson County employment for the weekday model and Hudson County population for the weekend models.
+
+```{r,  echo=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=40)}
+### WEEKDAYS 
+oldreg=as.matrix(data.frame(before$man_hud,                       
+                            before$dummy_2,  before$dummy_3,  before$dummy_4, 
+                            before$dummy_5, before$dummy_6, before$dummy_7, 
+                            before$dummy_8, before$dummy_9, 
+                            before$dummy_10, before$dummy_11, before$dummy_12, 
+                            before$dum_911_base, before$supersandy,  before$real_farefare)) 
+newreg=as.matrix(data.frame(after$man_hud, 
+                            after$dummy_2, after$dummy_3, after$dummy_4, after$dummy_5,  
+                            after$dummy_6, after$dummy_7,  after$dummy_8,  after$dummy_9,  
+                            after$dummy_10, after$dummy_11, after$dummy_12,
+                            after$dum_911_base, after$supersandy, after$real_farefare))
+
+### SATURDAY & SUNDAY 
+oldregsat=as.matrix(data.frame(before$pop_hudson, 
+                            before$dummy_2, before$dummy_3, before$dummy_4, before$dummy_5,
+                            before$dummy_6, before$dummy_7, before$dummy_8, before$dummy_9,                             before$dummy_10, before$dummy_11, before$dummy_12, 
+                            before$dum_911_base, 
+                            before$supersandy, before$end_close, before$real_farefare))
+newregsat=as.matrix(data.frame(after$pop_hudson,  
+                            after$dummy_2, after$dummy_3, after$dummy_4, after$dummy_5, 
+                            after$dummy_6, after$dummy_7, after$dummy_8, after$dummy_9, 
+                            after$dummy_10, after$dummy_11, after$dummy_12, 
+                            after$dum_911_base, 
+                            after$supersandy, after$end_close, after$real_farefare))
+```
+
+```{r}
+#Code for scenarios
+oldreg_pess = as.matrix(data.frame(before$man_hud_pess,                       
+                            before$dummy_2,  before$dummy_3,  before$dummy_4, 
+                            before$dummy_5, before$dummy_6, before$dummy_7, 
+                            before$dummy_8, before$dummy_9, 
+                            before$dummy_10, before$dummy_11, before$dummy_12, 
+                            before$dum_911_base, before$supersandy,  before$real_farefare)) 
+newreg_pess=as.matrix(data.frame(after$man_hud_pess, 
+                            after$dummy_2, after$dummy_3, after$dummy_4, after$dummy_5,  
+                            after$dummy_6, after$dummy_7,  after$dummy_8,  after$dummy_9,  
+                            after$dummy_10, after$dummy_11, after$dummy_12,
+                            after$dum_911_base, after$supersandy, after$real_farefare))
+oldreg_opt = as.matrix(data.frame(before$man_hud_opt,
+                            before$dummy_2,  before$dummy_3,  before$dummy_4, 
+                            before$dummy_5, before$dummy_6, before$dummy_7, 
+                            before$dummy_8, before$dummy_9, 
+                            before$dummy_10, before$dummy_11, before$dummy_12, 
+                            before$dum_911_base, before$supersandy,  before$real_farefare)) 
+newreg_opt = as.matrix(data.frame(after$man_hud_opt, 
+                            after$dummy_2, after$dummy_3, after$dummy_4, after$dummy_5,  
+                            after$dummy_6, after$dummy_7,  after$dummy_8,  after$dummy_9,  
+                            after$dummy_10, after$dummy_11, after$dummy_12,
+                            after$dum_911_base, after$supersandy, after$real_farefare))
+```
+
+\pagebreak 
+The model specifications followed a joint 2017 project that included a broad review of potential predictors. Employment at the county level (Manhattan and Hudson County, combined) is not only a strong predictor of weekday ridership, it also more stable than other variables with roughly equivalent predictive power. 
+<p>&nbsp;</p> 
+
+```{r, include=TRUE, fig.width=9,fig.height=5}
+ggplot(data=path, aes(x=month, y=man_hud, group=1, colour=(month>"2020-02-01"))) +
+  geom_line(color="red") + 
+  geom_point(size=0.5) + 
+  theme(legend.position="none") + 
+  ylim(1000, 5000) + 
+  ylab("Employment\n(Manhattan + Hudson Co.)\nThousands") + 
+  xlab("") 
+```
+
+<p>&nbsp;</p> 
+
+```{r, include=TRUE, fig.width=9,fig.height=5}
+ggplot(data=path, aes(x=month, y=pop_hudson, group=1, colour=(month>"2020-02-01"))) +
+  geom_line(color="green") + 
+  geom_point(size=0.5) + 
+  theme(legend.position="none") + 
+  ylim(500,1000) + 
+  ylab("Hudson Co. Population\nThousands") + 
+  xlab("") 
+```
+                
+*Red Points Represent Data, Blue Represent Forecast*
+
+##\textcolor{red}{Models are trained below}
+###\textcolor{red}{Weekday:}
+
+```{r, echo=TRUE}
+fit = arima(ts(before$avg_wkdayholminor_tstile),xreg = oldreg, order=c(0,0,1), include.mean=T)
+```
+
+###\textcolor{red}{Saturday:}
+
+```{r, echo=TRUE}
+fitsat = arima(ts(before$avg_satholmajor_tstile),xreg=oldregsat,order=c(1,1,0))
+```
+
+###\textcolor{red}{Sunday:}
+
+```{r, echo=TRUE}
+fitsun = arima(ts(before$avg_sun_tstile),xreg=oldregsat,order=c(1,1,1))
+```
+
+```{r}
+#Scenarios
+fit_pess = arima(ts(before$avg_wkdayholminor_tstile),xreg = oldreg_pess, order=c(0,0,1), include.mean=T)
+fit_opt = arima(ts(before$avg_wkdayholminor_tstile),xreg = oldreg_opt, order=c(0,0,1), include.mean=T)
+```
+
+
+<p>&nbsp;</p>
+Model equation coefficients and residuals are found at the end of this file. Subsequent code forecasts future ridership and organizes results for export: 
+<p>&nbsp;</p> 
+
+```{r, echo=TRUE}
+pathpredict = predict(fit, n.ahead=forec_horizon, newxreg=newreg) # level=95 #interval = "prediction", conf.level=.9) 
+pathpredictsat = predict(fitsat, n.ahead=forec_horizon, newxreg=newregsat) 
+pathpredictsun = predict(fitsun, n.ahead=forec_horizon, newxreg=newregsat) 
+pathpredict_pess = predict(fit_pess, n.ahead=forec_horizon, newxreg=newreg_pess) 
+pathpredict_opt = predict(fit_opt, n.ahead=forec_horizon, newxreg=newreg_opt) 
+```
+
+```{r, echo=TRUE}
+pathpredict_by_month = as.data.frame(cbind(pathpredict$pred,pathpredictsat$pred,pathpredictsun$pred,pathpredict_pess$pred,pathpredict_opt$pred)); names(pathpredict_by_month) = c("avg_wkdayholminor_tstile","avg_satholmajor_tstile","avg_sun_tstile","pess_wkdayholminor","opt_wkdayholminor") 
+pathpredict_by_month$month = seq(as.Date(end)+extra,as.Date(future),by="mon") 
+```
+
+```{r}
+# Add old data back to the pile. Limit it to data from the current year. 
+before_mini = subset(before,year(before$month)>=2020 & before$month<=end) 
+before_mini = before_mini %>% select(avg_wkdayholminor_tstile, avg_satholmajor_tstile, avg_sun_tstile, month)
+before_mini$pess_wkdayholminor = before_mini$avg_wkdayholminor_tstile
+before_mini$opt_wkdayholminor = before_mini$avg_wkdayholminor_tstile
+pathpredict_by_month = rbind(pathpredict_by_month, before_mini) 
+```
+
+```{r}
+# Now multiply by number of days per month ... 
+pathpredict_by_month = merge(pathpredict_by_month,days) 
+pathpredict_by_month$sum_wkdayholminor = pathpredict_by_month$avg_wkdayholminor_tstile*pathpredict_by_month$num_wkdayholminor
+pathpredict_by_month$sum_satholmajor = pathpredict_by_month$avg_satholmajor_tstile*pathpredict_by_month$num_satholmajor
+pathpredict_by_month$sum_sun = pathpredict_by_month$avg_sun_tstile*pathpredict_by_month$num_sun
+pathpredict_by_month$sum_wkday_pess =  pathpredict_by_month$pess_wkdayholminor*pathpredict_by_month$num_wkdayholminor
+pathpredict_by_month$sum_wkday_opt =  pathpredict_by_month$opt_wkdayholminor*pathpredict_by_month$num_wkdayholminor
+```
+
+
+```{r, echo=TRUE}
+# Annual 
+pathpredict_by_month$year = year(pathpredict_by_month$month) 
+pathpredict_year = summaryBy(sum_wkdayholminor + sum_satholmajor + sum_sun + sum_wkday_pess + sum_wkday_opt ~ year, data = pathpredict_by_month, FUN = sum); names(pathpredict_year) = c("year","base_wkday", "saturday", "sunday","pess_wkday","opt_wkday") 
+pathpredict_year$base_total = pathpredict_year$base_wkday + pathpredict_year$saturday + pathpredict_year$sunday 
+pathpredict_year$pess_total = pathpredict_year$pess_wkday + pathpredict_year$saturday + pathpredict_year$sunday 
+pathpredict_year$opt_total = pathpredict_year$opt_wkday + pathpredict_year$saturday + pathpredict_year$sunday
+pathpredict_by_month$year = NULL 
+pathpredict_year = pathpredict_year[c(1,2,3,4,7,5,8,6,9)]
+```
+
+
+```{r}
+out1 = tidy(fit) 
+out2 = glance(fit) 
+out2.5 = accuracy(fit) 
+out3 = tidy(fitsat) 
+out4 = glance(fitsat)
+out4.5 = accuracy(fitsat) 
+out5 = tidy(fitsun) 
+out6 = glance(fitsun) 
+out6.5 = accuracy(fitsun) 
+```
+
+
+```{r, echo=TRUE}
+resids = as.data.frame(cbind(as.vector(resid(fit)),as.vector(resid(fitsat)),as.vector(resid(fitsun)))); names(resids) = c("Weekday_residuals", "Saturday_residuals", "Sunday_residuals")
+```
+
+
+\pagebreak 
+
+##Output
+
+```{r}
+#mydata[c(1,5:10)]
+kable(pathpredict_year[c(1:5)],caption="Annual Results", digits = 3, format.args = list(big.mark = ",", 
+  scientific = FALSE))
+```
+
+
+```{r}
+kable(pathpredict_year[c(1,6,8,3,4,7,9)],caption="Scenarios", digits = 3, format.args = list(big.mark = ",", 
+  scientific = FALSE))
+```
+
+```{r}
+pathpredict_by_month$weekdays = NULL 
+pathpredict_by_month$saturdays = NULL 
+pathpredict_by_month$sundays = NULL 
+pathpredict_by_month$year = NULL 
+```
+
+Save everything as: 
+```{r, echo=TRUE}
+sheets = list(Data = path, Monthly_Output = pathpredict_by_month, Annual_Output = pathpredict_year, Residuals = resids)  
+write_xlsx(sheets, "./output data/Output 2020-06.xlsx") # This exports and names the file. 
+```
+
+###Monthly output included in Excel file within output folder. 
+
+\pagebreak 
+
+##Modeling statistics and diagnostics
+
+###Weekday
+
+```{r}
+kable(out1,caption="Weekday Coefficients") 
+kable(out2,caption="Weekday Diagnostics")
+kable(out2.5,caption="Weekday Additional Diagnostics")
+```
+
+\pagebreak 
+
+###Saturday
+
+```{r}
+kable(out3,caption="Saturday Coefficients") 
+kable(out4,caption="Saturday Diagnostics")
+kable(out4.5,caption="Saturday Additional Diagnostics")
+```
+
+\pagebreak
+
+###Sunday
+
+```{r}
+kable(out5,caption="Sunday Coefficients") 
+kable(out6,caption="Sunday Diagnostics")
+kable(out6.5,caption="Sunday Additional Diagnostics")
+```
+
+\pagebreak 
+
+###Model residuals
+```{r, include=TRUE, fig.width=9,fig.height=3}
+#resids$index = 1:nrow(resids) 
+resids$index = seq(as.Date("2004/1/1"), as.Date("2020/2/1"), by="month") # Add date 
+ggplot(data=resids, aes(x=index, y=Weekday_residuals, group=1)) +
+  geom_line(color="gray")
+ggplot(data=resids, aes(x=index, y=Saturday_residuals, group=1)) +
+  geom_line(color="gray")
+ggplot(data=resids, aes(x=index, y=Sunday_residuals, group=1)) +
+  geom_line(color="gray")
+```
+

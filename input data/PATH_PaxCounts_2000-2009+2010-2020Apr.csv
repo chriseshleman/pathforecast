@@ -1,4 +1,4 @@
-year,month,avg_wkdayholminor_tstile,avg_satholmajor_tstile,avg_sun_tstile,num_wkdayholminor,num_satholmajor,num_sun,total_days
+﻿year,month,avg_wkdayholminor_tstile,avg_satholmajor_tstile,avg_sun_tstile,num_wkdayholminor,num_satholmajor,num_sun,total_days
 2000,1,232710,85325.66667,60462,20,6,5,31
 2000,2,244019,94431.8,65227,20,5,4,29
 2000,3,247544,99765,68909,23,4,4,31
@@ -241,3 +241,5 @@ year,month,avg_wkdayholminor_tstile,avg_satholmajor_tstile,avg_sun_tstile,num_wk
 2019,12,257948,117357.6,89895.4,21,5,5,31
 2020,1,277230.0476,88876.83333,67356.75,21,6,4,31
 2020,2,282356.0526,96909.66667,70473.25,19,6,4,29
+2020,3,126273.4545,37938.25,35183.4,22,4,5,31
+2020,4,14596.5,7743.25,6126.5,22,4,4,30
