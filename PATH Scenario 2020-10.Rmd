@@ -1,0 +1,385 @@
+---
+title: "PATH Forecast :: Scenarios"
+author: "Planning & Regional Development"
+date: "10/08/2020"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include = TRUE, message = FALSE, warning = FALSE, tidy.opts=list(width.cutoff=60),tidy=TRUE) # Echo is the code and include is the output  
+```
+
+#\textcolor{red}{DRAFT}
+
+##Summary
+
+Outputs using the PATH econmetric forecasting model and October employment inputs (moderate and protracted). Ridership and Hudson County population inputs held constant as of February 2020. 
+
+One note of significance here is that our vendor, Oxford Economics, is projecting a decrease in *Hudson County population*, seen below. Our previous update (August) incorporated Oxford's expectation for reduced _employment_ into the PATH forecast, but those expectations remain largely unchanged between August and October; this forecast incorporates the new expectations for _population_, which puts downward pressure on the weekend projections. 
+
+This model iteration only updates the moderate scenario. References here and in the data output files to the protracted scenario and associated data refer to the August run. 
+
+<p>&nbsp;</p>
+
+\pagebreak 
+
+```{r}
+setwd("~/Dropbox/Work and research/Port Authority/pathforecast")
+
+cat("\014") # clear the console 
+rm(list=ls()) 
+options(scipen=999) 
+
+library(broom) 
+library(knitr) 
+library(zoo) 
+library(reshape2) 
+library(forecast) 
+library(tseries) 
+library(dplyr) 
+library(lubridate) 
+library(doBy) 
+library(mice) 
+library(lmtest) 
+library(tidyr) 
+library(stringr) 
+library(ggplot2) 
+library(scales) 
+library(openxlsx) 
+library(writexl)
+library(formatR) 
+library(stats) 
+
+start = "2004-01-01" 
+```
+
+
+```{r, include=TRUE, echo=TRUE}
+end = "2020-02-01" 
+end_and_one = "2020-03-01" 
+end_cpi = "2020-10-01" 
+```
+
+
+```{r}
+extra = as.Date(end_and_one)-as.Date(end) 
+future = "2035-12-31" 
+
+elapsed_months <- function(end_date, start_date) {
+  ed <- as.POSIXlt(end_date) 
+  sd <- as.POSIXlt(start_date) 
+  12 * (ed$year - sd$year) + (ed$mon - sd$mon) 
+}
+horizon = elapsed_months(future,start)+1 
+forec_horizon = elapsed_months(future,end) 
+```
+
+
+```{r}
+# Import quarterly variables and convert quarterly to monthly. 
+jobs = read.csv("./input data/econ_vars_quar 2020_10.csv") 
+
+jobs1 = jobs#[complete.cases(jobs),] # IF QUARTERS ARE 'AVERAGE' OF RELEVANT THREE MONTHS (define 'average' later) 
+
+jobs1$Month = as.Date(jobs1$Month, "%m/%d/%y") 
+
+jobs1 = read.zoo(jobs1) # Converts the data frame to a time series matrix 
+
+tt = as.yearmon(seq(start(jobs1), end(jobs1), "month")) # Makes months, different format
+
+zm = as.data.frame(na.spline(jobs1, as.yearmon, xout = tt)) 
+zm$month = seq(as.Date("2000/1/1"), as.Date("2040/10/01"), by="month") # Add date 
+
+zm2 = subset(zm,zm$month=="2040-10-01") 
+zm3 = subset(zm,zm$month=="2040-10-01") 
+zm2$month="2040-11-01" 
+zm3$month="2040-12-01" 
+zm=rbind(zm,zm2) 
+zm=rbind(zm,zm3) 
+
+zm = zm[order(as.Date(zm$month, format="%Y-%m-%d")),] 
+
+econ_month = zm 
+names(econ_month) = tolower(names(econ_month)) 
+```
+
+```{r}
+# Save economic monthly variables as: 
+write.csv(econ_month,"./input data/econ_vars_months 2020_10.csv") 
+```
+
+```{r}
+rm(jobs,jobs1,tt,zm,zm2,zm3) 
+```
+
+
+
+```{r}
+econ_county_august = read.csv("./_misc/county_monthly_202008.csv") 
+econ_county_august$month = as.Date(econ_county_august$X,format= "%m/%d/%y") 
+econ_county_august$X = NULL 
+econ_county_august = subset(econ_county_august,econ_county_august$month >= "2000-01-01" & econ_county_august$month <= "2035-12-31") 
+econ_county_august = econ_county_august[c("month","Man.Hud.Emp.Moderate","Man.Hud.Emp.Protracted")] 
+```
+
+```{r}
+econ_month = merge(econ_month,econ_county_august) 
+```
+
+```{r, echo=TRUE} 
+path = read.csv("./input data/PATH_PaxCounts_2000-2009+2010-2020Apr.csv") 
+path$month = as.Date(paste(path$year,str_pad(path$month, 2, pad = "0"),"01",sep="-"))
+path$year = NULL 
+```
+
+```{r}
+# Other data 
+days = read.csv("./input data/dates_dummies.csv") 
+days$month = as.Date(days$month, "%m/%d/%y") 
+
+fare = read.csv("./input data/fare_nominal.csv") 
+fare$month = as.Date(fare$month, "%m/%d/%y") 
+
+# Merge 
+path = merge(days,path, all.x = TRUE)#,by="month") 
+path = merge(path,fare)#,by="month") 
+path = merge(path,econ_month) 
+```
+
+
+```{r}
+ggplot(path, aes(month)) +                    # basic graphical object
+  geom_line(aes(y=Man.Hud.Emp.Moderate), colour="red") +  # first layer
+  # geom_line(aes(y=Man.Hud.Emp.Protracted), colour="green") + # second layer   
+  geom_line(aes(y=man_hud_2020_10), colour="blue")  # second layer 
+```
+
+```{r}
+pop = data.frame(path$month,path$pop_hudson,path$pop_hudson_2020_06,path$pop_hudson_2020_10) 
+names(pop) = c("month","pop_hudson_pre_covid","pop_hudson_2020_07","pop_hudson_2020_10") 
+pop.melt = reshape2::melt(pop, id.var='month') 
+head(pop.melt) 
+
+ggplot(pop.melt, aes(x=month, y=value, col=variable)) + geom_line() 
+#ggplot(pop.melt, aes(month)) +                    # basic graphical object
+#  geom_line(aes(y=pop_hudson_pre_covid), colour="red") +  # first layer
+#  geom_line(aes(y=pop_hudson_2020_07), colour="green") + # second layer   
+#  geom_line(aes(y=pop_hudson_2020_10), colour="blue")  # second layer 
+ggsave(
+  "./plots/Hudson_Population_2020_10.png",
+  plot = last_plot(),
+  scale = 1,
+  width = 20,
+  height = 12,
+  units = c("cm"),
+  dpi = 300)
+```
+
+
+```{r, echo=TRUE}
+path$cpi_base = path[path$month==end_cpi, "cpi_2020_10"] 
+path$real_farefare = ifelse(path$month <= end, path$fare_nominal * path$cpi_base / path$cpi_2020_10, max(path$fare_nominal)) 
+path$cpi_base = NULL 
+```
+
+
+```{r, echo=TRUE}
+before = subset(path, path$month<=end & path$month>="2004-01-01") #before = head(path, 218)
+after = subset(path, path$month>end) #after = tail(path, 250) 
+```
+
+
+```{r,  echo=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=40)}
+### WEEKDAYS 
+oldreg=as.matrix(data.frame(before$man_hud_2020_10,                       
+                            before$dummy_2,  before$dummy_3,  before$dummy_4, 
+                            before$dummy_5, before$dummy_6, before$dummy_7, 
+                            before$dummy_8, before$dummy_9, 
+                            before$dummy_10, before$dummy_11, before$dummy_12, 
+                            before$dum_911_base, before$supersandy,  before$real_farefare)) 
+newreg=as.matrix(data.frame(after$man_hud_2020_10, 
+                            after$dummy_2, after$dummy_3, after$dummy_4, after$dummy_5,  
+                            after$dummy_6, after$dummy_7,  after$dummy_8,  after$dummy_9,  
+                            after$dummy_10, after$dummy_11, after$dummy_12,
+                            after$dum_911_base, after$supersandy, after$real_farefare))
+
+### SATURDAY & SUNDAY 
+oldregsat=as.matrix(data.frame(before$pop_hudson_2020_10, 
+                            before$dummy_2, before$dummy_3, before$dummy_4, before$dummy_5,
+                            before$dummy_6, before$dummy_7, before$dummy_8, before$dummy_9,                             before$dummy_10, before$dummy_11, before$dummy_12, 
+                            before$dum_911_base, 
+                            before$supersandy, before$end_close, before$real_farefare))
+newregsat=as.matrix(data.frame(after$pop_hudson_2020_10,  
+                            after$dummy_2, after$dummy_3, after$dummy_4, after$dummy_5, 
+                            after$dummy_6, after$dummy_7, after$dummy_8, after$dummy_9, 
+                            after$dummy_10, after$dummy_11, after$dummy_12, 
+                            after$dum_911_base, 
+                            after$supersandy, after$end_close, after$real_farefare))
+```
+
+```{r}
+#Code for scenarios
+oldreg_pess = as.matrix(data.frame(before$Man.Hud.Emp.Protracted,                       
+                            before$dummy_2,  before$dummy_3,  before$dummy_4, 
+                            before$dummy_5, before$dummy_6, before$dummy_7, 
+                            before$dummy_8, before$dummy_9, 
+                            before$dummy_10, before$dummy_11, before$dummy_12, 
+                            before$dum_911_base, before$supersandy,  before$real_farefare)) 
+newreg_pess=as.matrix(data.frame(after$Man.Hud.Emp.Protracted, 
+                            after$dummy_2, after$dummy_3, after$dummy_4, after$dummy_5,  
+                            after$dummy_6, after$dummy_7,  after$dummy_8,  after$dummy_9,  
+                            after$dummy_10, after$dummy_11, after$dummy_12,
+                            after$dum_911_base, after$supersandy, after$real_farefare))
+```
+
+
+##\textcolor{red}{Models are trained below}
+###\textcolor{red}{Weekday:}
+
+```{r, echo=TRUE}
+fit = arima(ts(before$avg_wkdayholminor_tstile),xreg = oldreg, order=c(0,0,1), include.mean=T)
+```
+
+###\textcolor{red}{Saturday:}
+
+```{r, echo=TRUE}
+fitsat = arima(ts(before$avg_satholmajor_tstile),xreg=oldregsat,order=c(1,1,0))
+```
+
+###\textcolor{red}{Sunday:}
+
+```{r, echo=TRUE}
+fitsun = arima(ts(before$avg_sun_tstile),xreg=oldregsat,order=c(1,1,1))
+```
+
+Scenarios: 
+```{r, echo=TRUE}
+#Scenarios
+fit_pess = arima(ts(before$avg_wkdayholminor_tstile),xreg = oldreg_pess, order=c(0,0,1), include.mean=T) 
+```
+
+
+```{r, echo=TRUE}
+pathpredict = predict(fit, n.ahead=forec_horizon, newxreg=newreg) # level=95 #interval = "prediction", conf.level=.9) 
+pathpredictsat = predict(fitsat, n.ahead=forec_horizon, newxreg=newregsat) 
+pathpredictsun = predict(fitsun, n.ahead=forec_horizon, newxreg=newregsat) 
+pathpredict_pess = predict(fit_pess, n.ahead=forec_horizon, newxreg=newreg_pess) 
+```
+
+```{r, echo=TRUE}
+pathpredict_by_month = as.data.frame(cbind(pathpredict$pred,pathpredictsat$pred,pathpredictsun$pred,pathpredict_pess$pred)); names(pathpredict_by_month) = c("avg_wkdayholminor_tstile","avg_satholmajor_tstile","avg_sun_tstile","pess_wkdayholminor") 
+pathpredict_by_month$month = seq(as.Date(end)+extra,as.Date(future),by="mon") 
+```
+
+```{r}
+# Add old data back to the pile. Limit it to data from the current year. 
+before_mini = subset(before,year(before$month)>=2020 & before$month<=end) 
+before_mini = before_mini %>% select(avg_wkdayholminor_tstile, avg_satholmajor_tstile, avg_sun_tstile, month)
+before_mini$pess_wkdayholminor = before_mini$avg_wkdayholminor_tstile
+pathpredict_by_month = rbind(pathpredict_by_month, before_mini) 
+```
+
+```{r}
+# Now multiply by number of days per month ... 
+pathpredict_by_month = merge(pathpredict_by_month,days) 
+pathpredict_by_month$sum_wkdayholminor = pathpredict_by_month$avg_wkdayholminor_tstile*pathpredict_by_month$num_wkdayholminor
+pathpredict_by_month$sum_satholmajor = pathpredict_by_month$avg_satholmajor_tstile*pathpredict_by_month$num_satholmajor
+pathpredict_by_month$sum_sun = pathpredict_by_month$avg_sun_tstile*pathpredict_by_month$num_sun
+pathpredict_by_month$sum_wkday_pess =  pathpredict_by_month$pess_wkdayholminor*pathpredict_by_month$num_wkdayholminor
+```
+
+
+```{r, echo=TRUE}
+# Annual 
+pathpredict_by_month$year = year(pathpredict_by_month$month) 
+pathpredict_year = summaryBy(sum_wkdayholminor + sum_satholmajor + sum_sun + sum_wkday_pess ~ year, data = pathpredict_by_month, FUN = sum); names(pathpredict_year) = c("year","base_wkday", "saturday", "sunday","pess_wkday") 
+pathpredict_year$base_total = pathpredict_year$base_wkday + pathpredict_year$saturday + pathpredict_year$sunday 
+pathpredict_year$pess_total = pathpredict_year$pess_wkday + pathpredict_year$saturday + pathpredict_year$sunday 
+pathpredict_by_month$year = NULL 
+```
+
+```{r}
+pathpredict_year = pathpredict_year[c(1,2,3,4,6,5,7)] 
+#pathpredict_year = pathpredict_year[c(1,2,3,4,7,5,8,6,9)]
+```
+
+
+```{r}
+out1 = tidy(fit) 
+out2 = glance(fit) 
+out2.5 = accuracy(fit) 
+out3 = tidy(fitsat) 
+out4 = glance(fitsat)
+out4.5 = accuracy(fitsat) 
+out5 = tidy(fitsun) 
+out6 = glance(fitsun) 
+out6.5 = accuracy(fitsun) 
+```
+
+
+```{r, echo=TRUE}
+resids = as.data.frame(cbind(as.vector(resid(fit)),as.vector(resid(fitsat)),as.vector(resid(fitsun)))); names(resids) = c("Weekday_residuals", "Saturday_residuals", "Sunday_residuals")
+```
+
+
+\pagebreak 
+
+##Output
+
+```{r}
+pathpredict_by_month$weekdays = NULL 
+pathpredict_by_month$saturdays = NULL 
+pathpredict_by_month$sundays = NULL 
+pathpredict_by_month$year = NULL 
+```
+
+Save everything as: 
+```{r, echo=TRUE}
+sheets = list(Data = path, Monthly_Output = pathpredict_by_month, Annual_Output = pathpredict_year, Residuals = resids)  
+write_xlsx(sheets, "./output data/Output Scenarios 2020-10 moderate.xlsx") # This exports and names the file. 
+```
+
+###Monthly output included in Excel file within output folder. 
+
+\pagebreak 
+
+##Modeling statistics and diagnostics
+
+###Weekday
+
+```{r}
+kable(out1,caption="Weekday Coefficients") 
+kable(out2,caption="Weekday Diagnostics")
+kable(out2.5,caption="Weekday Additional Diagnostics")
+```
+
+\pagebreak 
+
+###Saturday
+
+```{r}
+kable(out3,caption="Saturday Coefficients") 
+kable(out4,caption="Saturday Diagnostics")
+kable(out4.5,caption="Saturday Additional Diagnostics")
+```
+
+\pagebreak
+
+###Sunday
+
+```{r}
+kable(out5,caption="Sunday Coefficients") 
+kable(out6,caption="Sunday Diagnostics")
+kable(out6.5,caption="Sunday Additional Diagnostics")
+```
+
+```{r}
+# plot the first curve by calling plot() function
+# First curve is plotted
+{plot(econ_month$month,econ_month$man_hud, type="o", col="blue", pch="o", lty=1, ylim=c(1500,4500), ylab="Man+Hud Employment")
+points(econ_month$month,econ_month$man_hud_2020_10, col="red", pch="*")
+points(econ_month$month,econ_month$Man.Hud.Emp.Protracted, col="red", pch="*")}
+#lines(econ_month$month,econ_month$Man.Hud.Emp.Moderate, col="red",lty=2)
+```
+

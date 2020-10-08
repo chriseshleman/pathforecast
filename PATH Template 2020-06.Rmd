@@ -63,7 +63,6 @@ library(mice)
 library(lmtest) 
 library(tidyr) 
 library(stringr) 
-library(zoo) 
 library(ggplot2) 
 library(scales) 
 library(openxlsx) 
@@ -160,6 +159,9 @@ path = merge(path,fare)#,by="month")
 path = merge(path,econ_month) 
 ```
 
+```{r}
+head(path,4) 
+```
 
 Details for calculation of real fare in footnote.^[https://stackoverflow.com/questions/25646333/code-chunk-font-size-in-rmarkdown-with-knitr-and-latex/57151528#57151528] 
 

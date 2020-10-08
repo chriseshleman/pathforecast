@@ -1,0 +1,39 @@
+---
+title: "Quartomonth"
+author: "Chris Eshleman"
+date: "8/21/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(zoo) 
+```
+
+```{r}
+# Import quarterly variables and convert quarterly to monthly. 
+jobs = read.csv("~/Dropbox/Work and research/Port Authority/pathforecast/Var_Five.csv") 
+
+jobs$Month = as.Date(jobs$Month, "%m/%d/%y") 
+jobs = read.zoo(jobs) # Converts the data frame to a time series matrix 
+
+tt = as.yearmon(seq(start(jobs), end(jobs), "month")) # Makes months, different format
+
+zm = as.data.frame(na.spline(jobs, as.yearmon, xout = tt)) 
+zm$month = seq(as.Date("2020/1/1"), as.Date("2021/10/01"), by="month") # Add date 
+
+zm2 = subset(zm,zm$month=="2021-10-01") 
+zm3 = subset(zm,zm$month=="2021-10-01") 
+zm2$month="2021-11-01" 
+zm3$month="2021-12-01" 
+zm=rbind(zm,zm2) 
+zm=rbind(zm,zm3) 
+
+zm = zm[order(as.Date(zm$month, format="%Y-%m-%d")),] 
+names(zm) = c("spline","month")
+zm$spline = zm$spline/3
+write.csv(zm,"~/Dropbox/Work and research/Port Authority/pathforecast/Var_Five_Month.csv") 
+```
