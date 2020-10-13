@@ -114,7 +114,6 @@ rm(jobs,jobs1,tt,zm,zm2,zm3)
 ```
 
 
-
 ```{r}
 econ_county_august = read.csv("./_misc/county_monthly_202008.csv") 
 econ_county_august$month = as.Date(econ_county_august$X,format= "%m/%d/%y") 
@@ -178,8 +177,10 @@ ggsave(
 
 
 ```{r, echo=TRUE}
-path$cpi_base = path[path$month==end_cpi, "cpi_2020_10"] 
-path$real_farefare = ifelse(path$month <= end, path$fare_nominal * path$cpi_base / path$cpi_2020_10, max(path$fare_nominal)) 
+path$cpi_base = path[path$month==end_cpi, #_cpi, 
+                     "cpi_2020_10"]# "cpi_2020_10"]  
+path$real_farefare = ifelse(path$month <= end_cpi, #_cpi
+                            path$fare_nominal * path$cpi_base / path$cpi_2020_10, max(path$fare_nominal)) #path$cpi_2020_10, max(path$fare_nominal)) 
 path$cpi_base = NULL 
 ```
 
@@ -192,25 +193,28 @@ after = subset(path, path$month>end) #after = tail(path, 250)
 
 ```{r,  echo=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=40)}
 ### WEEKDAYS 
-oldreg=as.matrix(data.frame(before$man_hud_2020_10,                       
+oldreg=as.matrix(data.frame(before$man_hud_2020_10, #Man.Hud.Emp.Moderate,
                             before$dummy_2,  before$dummy_3,  before$dummy_4, 
                             before$dummy_5, before$dummy_6, before$dummy_7, 
                             before$dummy_8, before$dummy_9, 
                             before$dummy_10, before$dummy_11, before$dummy_12, 
                             before$dum_911_base, before$supersandy,  before$real_farefare)) 
-newreg=as.matrix(data.frame(after$man_hud_2020_10, 
+newreg=as.matrix(data.frame(after$man_hud_2020_10, #Man.Hud.Emp.Moderate,
                             after$dummy_2, after$dummy_3, after$dummy_4, after$dummy_5,  
                             after$dummy_6, after$dummy_7,  after$dummy_8,  after$dummy_9,  
                             after$dummy_10, after$dummy_11, after$dummy_12,
                             after$dum_911_base, after$supersandy, after$real_farefare))
+```
 
+
+```{r}
 ### SATURDAY & SUNDAY 
-oldregsat=as.matrix(data.frame(before$pop_hudson_2020_10, 
+oldregsat=as.matrix(data.frame(before$pop_hudson,# _2020_10, #_2020_10, 
                             before$dummy_2, before$dummy_3, before$dummy_4, before$dummy_5,
                             before$dummy_6, before$dummy_7, before$dummy_8, before$dummy_9,                             before$dummy_10, before$dummy_11, before$dummy_12, 
                             before$dum_911_base, 
                             before$supersandy, before$end_close, before$real_farefare))
-newregsat=as.matrix(data.frame(after$pop_hudson_2020_10,  
+newregsat=as.matrix(data.frame(after$pop_hudson,# _2020_10, #_2020_10,  
                             after$dummy_2, after$dummy_3, after$dummy_4, after$dummy_5, 
                             after$dummy_6, after$dummy_7, after$dummy_8, after$dummy_9, 
                             after$dummy_10, after$dummy_11, after$dummy_12, 
@@ -218,9 +222,10 @@ newregsat=as.matrix(data.frame(after$pop_hudson_2020_10,
                             after$supersandy, after$end_close, after$real_farefare))
 ```
 
+
 ```{r}
 #Code for scenarios
-oldreg_pess = as.matrix(data.frame(before$Man.Hud.Emp.Protracted,                       
+oldreg_pess = as.matrix(data.frame(before$Man.Hud.Emp.Protracted, 
                             before$dummy_2,  before$dummy_3,  before$dummy_4, 
                             before$dummy_5, before$dummy_6, before$dummy_7, 
                             before$dummy_8, before$dummy_9, 
@@ -334,9 +339,14 @@ pathpredict_by_month$sundays = NULL
 pathpredict_by_month$year = NULL 
 ```
 
+```{r}
+tail(pathpredict_year) 
+```
+
+
 Save everything as: 
 ```{r, echo=TRUE}
-sheets = list(Data = path, Monthly_Output = pathpredict_by_month, Annual_Output = pathpredict_year, Residuals = resids)  
+sheets = list(Data = path, Monthly_Output = pathpredict_by_month, Annual_Output = pathpredict_year, Residuals = resids) 
 write_xlsx(sheets, "./output data/Output Scenarios 2020-10 moderate.xlsx") # This exports and names the file. 
 ```
 
@@ -379,7 +389,7 @@ kable(out6.5,caption="Sunday Additional Diagnostics")
 # First curve is plotted
 {plot(econ_month$month,econ_month$man_hud, type="o", col="blue", pch="o", lty=1, ylim=c(1500,4500), ylab="Man+Hud Employment")
 points(econ_month$month,econ_month$man_hud_2020_10, col="red", pch="*")
-points(econ_month$month,econ_month$Man.Hud.Emp.Protracted, col="red", pch="*")}
+points(econ_month$month,econ_month$Man.Hud.Emp.Protracted, col="green", pch="o")}
 #lines(econ_month$month,econ_month$Man.Hud.Emp.Moderate, col="red",lty=2)
 ```
 
